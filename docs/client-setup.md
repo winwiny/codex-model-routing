@@ -57,4 +57,4 @@ python scripts/sync_global_rules.py --client accio-work --export "accio-work-rou
 
 ## 置信度与报告来源
 
-按模板报告原始数值，不能把 `p(true)`、选项概率、评分当作 confidence。TypeSafe 的 Choice/Score confidence 概括分布集中程度，不保证真实正确率；阈值需要独立标签样本验证。参考 [TypeSafe Confidence](https://docs.typesafe.ai/confidence)、[Vercel 概率与阈值](https://vercel.com/i/jev-probabilities-and-thresholds)。模板里的 0.80 是暂时的主推理模型复核提醒，不是服务官方通用阈值或业务放行门。
+按模板报告原始数值，不能把 `p(true)`、选项概率、评分当作 confidence。TypeSafe 的 Choice/Score confidence 概括分布集中程度，不保证真实正确率；阈值需要独立标签样本验证。参考 [TypeSafe Confidence](https://docs.typesafe.ai/confidence)。模板里的 0.80 是暂时的主推理模型复核提醒，不是服务官方通用阈值或业务放行门。

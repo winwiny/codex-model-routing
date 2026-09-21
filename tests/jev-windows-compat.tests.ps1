@@ -38,7 +38,7 @@ function Assert-Case([bool]$Passed, [string]$Message) {
 # This is deliberately a local Node fixture. It has no network code and never
 # reads default credential locations. Every child loses any inherited real key.
 $stub = @'
-const key = process.env.AI_GATEWAY_API_KEY;
+const key = process.env.TYPESAFE_API_KEY;
 const keySource = key === 'jev-compat-fake-key-do-not-use' ? 'dpapi'
   : key === 'jev-compat-fake-env-key' ? 'environment' : key ? 'unexpected' : 'missing';
 console.log(JSON.stringify({ keySource, args: process.argv.slice(2), networkRequests: 0 }));
@@ -55,7 +55,7 @@ function Read-Host {
   if (-not $AsSecureString) { throw 'Setup must use a secure prompt.' }
   ConvertTo-SecureString 'jev-compat-fake-key-do-not-use' -AsPlainText -Force
 }
-$beforeKey = [Environment]::GetEnvironmentVariable('AI_GATEWAY_API_KEY', 'Process')
+$beforeKey = [Environment]::GetEnvironmentVariable('TYPESAFE_API_KEY', 'Process')
 $beforeEncoding = [Console]::OutputEncoding.CodePage
 if ($config.Mode -eq 'setup') {
   & $config.Wrapper -Setup -CredentialPath $config.CredentialPath
@@ -67,7 +67,7 @@ if ($config.Mode -eq 'setup') {
   & $config.Wrapper @parameters
 }
 $code = $LASTEXITCODE
-if ([Environment]::GetEnvironmentVariable('AI_GATEWAY_API_KEY', 'Process') -cne $beforeKey) { exit 101 }
+if ([Environment]::GetEnvironmentVariable('TYPESAFE_API_KEY', 'Process') -cne $beforeKey) { exit 101 }
 if ([Console]::OutputEncoding.CodePage -ne $beforeEncoding) { exit 102 }
 exit $code
 '@
@@ -104,8 +104,8 @@ function Invoke-Case {
   # Let each host rebuild its own module paths; a .NET-launched Windows
   # PowerShell must not inherit incompatible bundled PowerShell 7 modules.
   $info.EnvironmentVariables.Remove('PSModulePath')
-  $info.EnvironmentVariables.Remove('AI_GATEWAY_API_KEY')
-  if ($FakeKey) { $info.EnvironmentVariables['AI_GATEWAY_API_KEY'] = $FakeKey }
+  $info.EnvironmentVariables.Remove('TYPESAFE_API_KEY')
+  if ($FakeKey) { $info.EnvironmentVariables['TYPESAFE_API_KEY'] = $FakeKey }
   if ($WithoutNodePath) { $info.EnvironmentVariables['PATH'] = '' }
   $child = [Diagnostics.Process]::new()
   try {
@@ -119,7 +119,7 @@ function Invoke-Case {
     Assert-Case ($result.Code -ne 101 -and $result.Code -ne 102) ($Name + ': parent state changed')
     return $result
   } finally {
-    $info.EnvironmentVariables.Remove('AI_GATEWAY_API_KEY')
+    $info.EnvironmentVariables.Remove('TYPESAFE_API_KEY')
     $child.Dispose()
   }
 }

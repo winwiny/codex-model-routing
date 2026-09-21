@@ -8,19 +8,34 @@ import { evaluateRequest, runCli } from '../scripts/jev-evaluate.mjs';
 
 const examplePath = resolve('examples/jev-request.json');
 const request = JSON.parse(await readFile(examplePath, 'utf8'));
-const answerBody = { model: 'typesafe-ai/jev', answers: { task_route: { type: 'choice', choice: 'code', confidence: 0.5 }, missing_price_guess: { type: 'boolean', probability: 0.01 } }, usage: { totalTokens: 4 }, providerMetadata: { typesafe: { confidence: { task_route: 0.9 } }, gateway: { generationId: 'g', cost: 1, marketCost: 2, gatewayCost: 3, surcharge: 4, routing: { selected: 'provider' }, secret: 'omit' } } };
+const answerBody = {
+  model: 'jev-1.13.0',
+  answers: {
+    task_route: {
+      type: 'choice',
+      choice: 'code',
+      probabilities: { code: 0.8, reasoning: 0.1, review: 0.05, jev: 0.05 },
+      confidence: 0.5
+    },
+    missing_price_guess: { type: 'noul', noul: 0.01 }
+  },
+  usage: { input_tokens: 3, output_tokens: 1 }
+};
 
 test('reads documented object-schema example and posts it unchanged', async () => {
   let captured;
   const result = await evaluateRequest(request, { apiKey: 'safe-test-key', fetchImpl: async (_url, options) => { captured = options; return { ok: true, status: 200, json: async () => answerBody }; } });
-  assert.deepEqual(JSON.parse(captured.body), { model: 'typesafe-ai/jev', state: request.state, questions: request.questions });
+  assert.deepEqual(JSON.parse(captured.body), { model: 'jev-latest', state: request.state, questions: request.questions });
+  assert.equal(captured.headers.authorization, 'Bearer safe-test-key');
   assert.equal(result.answers[0].status, 'review'); assert.equal(result.answers[1].answer.pTrue, 0.01); assert.equal(result.answers[1].confidence, null);
-  assert.equal(result.gateway.generationId, 'g'); assert.equal(result.gateway.secret, undefined);
+  assert.equal(result.provider, 'typesafe-direct');
+  assert.equal(result.endpoint, 'https://api.typesafe.ai/v1/systemone');
+  assert.deepEqual(result.usage, { inputTokens: 3, outputTokens: 1, totalTokens: 4 });
 });
 
 test('marks missing confidence and bad structures for review or validation fallback', async () => {
-  const scoreInput = { ...request, questions: { score: { type: 'score', instructions: 'Score only.' } } };
-  const good = await evaluateRequest(scoreInput, { apiKey: 'safe-test-key', fetchImpl: async () => ({ ok: true, json: async () => ({ model: 'typesafe-ai/jev', answers: { score: { type: 'score', score: 7 } } }) }) });
+  const scoreInput = { ...request, questions: { score: { type: 'score', instructions: 'Score only.', criteria: ['low', 'high'] } } };
+  const good = await evaluateRequest(scoreInput, { apiKey: 'safe-test-key', fetchImpl: async () => ({ ok: true, json: async () => ({ model: 'jev-1.13.0', answers: { score: { type: 'score', score: 0.5, legend: { 0: 'low', 1: 'high' }, probabilities: { 0: 0.5, 1: 0.5 } } } }) }) });
   assert.equal(good.answers[0].confidenceStatus, 'missing');
   const bad = await evaluateRequest(request, { apiKey: 'safe-test-key', fetchImpl: async () => ({ ok: true, json: async () => ({ ...answerBody, model: 'other' }) }) });
   assert.equal(bad.error.code, 'validation_failure');
@@ -49,11 +64,11 @@ test('missing credential keeps readable evidence and response metadata cannot le
   assert.equal(missing.purpose, request.purpose);
   assert.equal(missing.requestsAttempted, 0);
   const body = structuredClone(answerBody);
-  body.providerMetadata.gateway.generationId = 'prefix safe-test-key suffix';
-  body.usage = { inputTokens: 12, secret: 'safe-test-key' };
+  body.model = 'prefix safe-test-key suffix';
+  body.usage = { input_tokens: 12, output_tokens: 4, secret: 'safe-test-key' };
   const result = await evaluateRequest(request, { apiKey: 'safe-test-key', fetchImpl: async () => ({ ok: true, json: async () => body }) });
-  assert.equal(result.successfulEvaluations, 1);
-  assert.deepEqual(result.usage, { inputTokens: 12 });
+  assert.equal(result.status, 'failed');
+  assert.equal(result.error.code, 'validation_failure');
   assert.equal(JSON.stringify(result).includes('safe-test-key'), false);
 });
 

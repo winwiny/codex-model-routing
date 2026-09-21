@@ -22,7 +22,7 @@ description: 按任务选择主推理模型、编码子代理、Jev 与代码工
 
 复杂推理、调试、架构与最终验收由主代理负责；确定性计算、精确查询、校验与流程控制交给代码。语义分类、筛选、评分与简单路由优先评估 `typesafe-ai` Skill / Jev 的收益与可用性，按 [通用规则](assets/global-routing.md) 处理 schema、记录、置信度与回退。需要调用 Jev 时读取 [本机调用说明](docs/jev-invocation.md)、已安装的 `typesafe-ai` Skill 和实时官方文档；客户端已暴露 Jev MCP 时优先用 MCP，否则用随包脚本发送经过裁剪的输入。不要为同一判断重复走两个入口；不随本 Skill 打包密钥、凭证、用户聊天或 TypeSafe 的整份技能。
 
-每轮面向用户的最终回复附 Jev 记录。无调用写“Jev：0 次；原因：…；置信度：N/A”。实际调用报告原始结果及 confidence，保留失败和重评；Boolean/Noul 报 p(true)，不伪造 confidence。Choice/Score 的 0.80 只是未校准的复核提醒线，不代表正确率或操作授权。读文档、使用本 Skill、启动 Codex 子代理均不算 Jev 调用。
+每轮面向用户的最终回复附 Jev 记录。无调用写“Jev：0 次；原因：…；置信度：N/A”。实际调用报告原始结果及 confidence，保留失败和重评；Noul 报 p(true)，不伪造 confidence。Choice/Score 的 0.80 只是未校准的复核提醒线，不代表正确率或操作授权。读文档、使用本 Skill、启动 Codex 子代理均不算 Jev 调用。
 
 ## 职责与默认选择
 

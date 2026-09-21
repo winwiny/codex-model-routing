@@ -1,6 +1,6 @@
 #Requires -Version 5.1
 <#
-Stores an optional Jev gateway key with Windows DPAPI (CurrentUser), then runs
+Stores an optional official TypeSafe API key with Windows DPAPI (CurrentUser), then runs
 jev-evaluate.mjs with the key only in its child-process environment.
 DPAPI protects the file at rest; other programs running as this Windows user
 can also decrypt it. No key is written to the user or machine environment.
@@ -19,7 +19,7 @@ param(
   [Parameter(ParameterSetName = 'Run')]
   [switch]$Check,
 
-  [string]$CredentialPath = (Join-Path $env:LOCALAPPDATA 'ModelTaskRouting/ai-gateway.dpapi')
+  [string]$CredentialPath = (Join-Path $env:LOCALAPPDATA 'ModelTaskRouting/typesafe.dpapi')
 )
 
 Set-StrictMode -Version Latest
@@ -78,7 +78,7 @@ try {
     }
 
     $failureMessage = 'Unable to read the hidden credential prompt.'
-    $secureKey = Read-Host 'Enter AI_GATEWAY_API_KEY (hidden)' -AsSecureString
+    $secureKey = Read-Host 'Enter TYPESAFE_API_KEY (hidden)' -AsSecureString
     if ($secureKey.Length -eq 0) {
       $failureMessage = 'The credential key must not be empty.'
       throw 'The key must not be empty.'
@@ -113,7 +113,7 @@ try {
       }
     }
 
-    $plainKey = [Environment]::GetEnvironmentVariable('AI_GATEWAY_API_KEY', 'Process')
+    $plainKey = [Environment]::GetEnvironmentVariable('TYPESAFE_API_KEY', 'Process')
     if ([string]::IsNullOrWhiteSpace($plainKey) -and (Test-Path -LiteralPath $credentialFile -PathType Leaf)) {
       $failureMessage = 'Unable to decrypt CredentialPath for this Windows user; use its original user or configure a new file.'
       $encryptedKey = [IO.File]::ReadAllText($credentialFile)
@@ -151,10 +151,10 @@ try {
       $startInfo.Arguments = ($nodeArguments | ForEach-Object { ConvertTo-WindowsArgument $_ }) -join ' '
     }
     if (-not [string]::IsNullOrWhiteSpace($plainKey)) {
-      $startInfo.EnvironmentVariables['AI_GATEWAY_API_KEY'] = $plainKey
+      $startInfo.EnvironmentVariables['TYPESAFE_API_KEY'] = $plainKey
     } else {
       # A missing key is left to the evaluator, which writes structured evidence.
-      $startInfo.EnvironmentVariables.Remove('AI_GATEWAY_API_KEY')
+      $startInfo.EnvironmentVariables.Remove('TYPESAFE_API_KEY')
     }
 
     $process = [Diagnostics.Process]::new()
@@ -176,7 +176,7 @@ try {
 } finally {
   if ($null -ne $writer) { $writer.Dispose() }
   if ($null -ne $stream) { $stream.Dispose() }
-  if ($null -ne $startInfo) { $startInfo.EnvironmentVariables.Remove('AI_GATEWAY_API_KEY') }
+  if ($null -ne $startInfo) { $startInfo.EnvironmentVariables.Remove('TYPESAFE_API_KEY') }
   if ($null -ne $process) { $process.Dispose() }
   if ($secretBstr -ne [IntPtr]::Zero) {
     [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($secretBstr)

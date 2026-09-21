@@ -1,7 +1,7 @@
 {
   "schemaVersion": "routing-example-v1",
   "purpose": "用虚构文本演示有边界的任务分类，不执行分类结果",
-  "model": "typesafe-ai/jev",
+  "model": "jev-latest",
   "state": {"text": "请按已给公式计算这张订单的总价，不需要推测缺失价格。"},
   "questions": {
     "task_route": {
@@ -15,7 +15,7 @@
       }
     },
     "missing_price_guess": {
-      "type": "boolean",
+      "type": "noul",
       "instructions": "state.text 是否要求推测缺失价格？不要把否定这种要求误判为要求。"
     }
   }

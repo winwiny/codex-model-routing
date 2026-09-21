@@ -8,8 +8,9 @@ import { checkJev, evaluateJev, getJevRecord } from '../scripts/jev-mcp-server.m
 function successfulEvidence() {
   return {
     schemaVersion: 'test-v1',
-    requestedModel: 'typesafe-ai/jev',
-    returnedModel: 'typesafe-ai/jev',
+    provider: 'typesafe-direct',
+    requestedModel: 'jev-latest',
+    returnedModel: 'jev-1.13.0',
     status: 'success',
     requestsAttempted: 1,
     successfulEvaluations: 1,
@@ -41,7 +42,7 @@ test('jev_evaluate fixes the model, keeps sanitized evidence, and removes raw in
     const inputPath = args[args.indexOf('-InputPath') + 1];
     const outputPath = args[args.indexOf('-OutputPath') + 1];
     const request = JSON.parse(await readFile(inputPath, 'utf8'));
-    assert.equal(request.model, 'typesafe-ai/jev');
+    assert.equal(request.model, 'jev-latest');
     await import('node:fs/promises').then(({ writeFile }) => writeFile(outputPath, JSON.stringify(successfulEvidence())));
     return { stdout: '', stderr: '' };
   };
@@ -67,7 +68,7 @@ test('jev_evaluate rejects credentials before invoking the launcher', async () =
     schemaVersion: 'test-v1',
     purpose: 'test only',
     state: { api_key: 'secret-value' },
-    questions: { present: { type: 'boolean', instructions: 'Is it present?' } }
+    questions: { present: { type: 'noul', instructions: 'Is it present?' } }
   }, { dataDir: join(tmpdir(), `jev-mcp-secret-${Date.now()}`), execFileImpl: async () => { invoked = true; } }), /sensitive_material_rejected/);
   assert.equal(invoked, false);
 });
@@ -77,7 +78,7 @@ test('jev_evaluate rejects oversized inputs', async () => {
     schemaVersion: 'test-v1',
     purpose: 'test only',
     state: 'x'.repeat(70 * 1024),
-    questions: { present: { type: 'boolean', instructions: 'Is it present?' } }
+    questions: { present: { type: 'noul', instructions: 'Is it present?' } }
   }, { dataDir: join(tmpdir(), `jev-mcp-large-${Date.now()}`) }), /input_too_large/);
 });
 

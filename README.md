@@ -23,7 +23,7 @@ A skill for task-based model routing, Jev judgments, and persistent client instr
 
 ## 如何实际调用 Jev
 
-AI 读取 [本机调用说明](docs/jev-invocation.md)，准备必要输入。客户端已经配置本机 Jev MCP 时，优先使用 `jev_check` / `jev_evaluate` / `jev_get_record`；否则调用随 Skill 附带的脚本。MCP 安装、工具与安全边界见 [本机 Jev MCP](docs/jev-mcp.md)。模型固定为 `typesafe-ai/jev`，通过 Vercel AI Gateway 的评价接口调用，不替换主代理的聊天模型。认证走 `AI_GATEWAY_API_KEY` 或 Windows 本机加密凭证；公共仓库不含密钥。
+AI 读取 [本机调用说明](docs/jev-invocation.md)，准备必要输入。客户端已经配置本机 Jev MCP 时，优先使用 `jev_check` / `jev_evaluate` / `jev_get_record`；否则调用随 Skill 附带的脚本。MCP 安装、工具与安全边界见 [本机 Jev MCP](docs/jev-mcp.md)。模型固定为官方别名 `jev-latest`，直接调用 TypeSafe 的 `POST https://api.typesafe.ai/v1/systemone`，不替换主代理的聊天模型。认证走 `TYPESAFE_API_KEY` 或 Windows 本机加密凭证；公共仓库不含密钥。
 
 ```bash
 node scripts/jev-evaluate.mjs --input examples/jev-request.json --check
@@ -156,7 +156,7 @@ git -C .agents/skills/model-task-routing pull --ff-only
 
 本版本通过 Skill 元数据格式检查。安装目录与更新命令经过隔离目录验证；对按需执行、强制委派受阻、Luna 实现测试、Astra 执行疑难任务四种情形完成了规则一致性走查。尚未完成跨客户端自动触发测试或模型成本对照实验。
 
-新增规则同步脚本通过 12 项 Python 隔离测试；Jev 调用器与 MCP 桥接层通过 12 项 Node 离线测试，包含真实 CLI 入口、官方问题格式、Windows 常见 JSON 编码、敏感输入拒绝、临时输入清理和审计记录读取。Windows DPAPI 包装器支持系统 PowerShell 5.1 与 PowerShell 7；本机 STDIO MCP 已完成工具发现、离线检查与一次真实网关评价调用。三个客户端的文件适配在隔离目录验证；未完成 Antigravity / Accio Work 的 MCP 客户端加载测试。单次调用不证明固定节省比例或业务判断准确率。
+新增规则同步脚本通过 Python 隔离测试；Jev 调用器与 MCP 桥接层包含 CLI 入口、官方问题格式、Windows 常见 JSON 编码、敏感输入拒绝、临时输入清理和审计记录读取测试。Windows DPAPI 包装器支持系统 PowerShell 5.1 与 PowerShell 7。迁移到官方 TypeSafe API 后，需要配置官方密钥并完成一次最小真实请求，才能声称当前凭证与网络链路已经接通。三个客户端的文件适配在隔离目录验证；未完成 Antigravity / Accio Work 的 MCP 客户端加载测试。单次调用不证明固定节省比例或业务判断准确率。
 
 欢迎通过 Issues 或 Pull Requests 提交问题与改进。报告时请说明客户端、可用模型、任务类型和预期行为，不要提交密钥、个人聊天记录或业务私密数据。
 

@@ -10,7 +10,7 @@ import { serveStdio } from '@modelcontextprotocol/server/stdio';
 import { z } from 'zod';
 
 const execFile = promisify(execFileCallback);
-const MODEL = 'typesafe-ai/jev';
+const MODEL = 'jev-latest';
 const MAX_INPUT_BYTES = 64 * 1024;
 const MAX_QUESTIONS = 16;
 const MAX_EVALUATIONS_PER_MINUTE = 20;
@@ -28,11 +28,11 @@ class McpInputError extends Error {
 }
 
 const questionSchema = z.object({
-  type: z.enum(['choice', 'boolean', 'score']),
+  type: z.enum(['choice', 'noul', 'score']),
   instructions: z.string().min(1).max(2_000),
   criteria: z.union([
     z.record(z.string().min(1).max(100), z.string().min(1).max(2_000)),
-    z.array(z.string().min(1).max(2_000)).min(2).max(20)
+    z.array(z.string().min(1).max(2_000)).min(2).max(10)
   ]).optional()
 }).strict().superRefine((question, context) => {
   if (question.type === 'choice' && (!question.criteria || Array.isArray(question.criteria))) {
@@ -153,7 +153,7 @@ export async function checkJev(options = {}) {
     model: MODEL,
     state: 'Local offline check.',
     questions: {
-      available: { type: 'boolean', instructions: 'Is this an offline schema check?' }
+      available: { type: 'noul', instructions: 'Is this an offline schema check?' }
     }
   };
   return withTemporaryInput(runtime, request, async (inputPath) => {
@@ -195,7 +195,7 @@ export function createJevMcpServer(options = {}) {
   const server = new McpServer(
     { name: 'local-jev', version: SERVER_VERSION },
     {
-      instructions: 'Use Jev only for bounded semantic classification, screening, scoring, routing, and simple judgments. Keep calculations, trading, risk, account state, and execution in deterministic code. Never send credentials, private keys, signatures, seed phrases, or unnecessary sensitive data. Jev results are typed judgments, not facts or authorization. Report raw confidence for Choice/Score and p(true) for Boolean; use review or deterministic fallback when evidence is weak or the service fails.'
+      instructions: 'Use Jev only for bounded semantic classification, screening, scoring, routing, and simple judgments. Keep calculations, trading, risk, account state, and execution in deterministic code. Never send credentials, private keys, signatures, seed phrases, or unnecessary sensitive data. Jev results are typed judgments, not facts or authorization. Report raw confidence for Choice/Score and p(true) for Noul; use review or deterministic fallback when evidence is weak or the service fails.'
     }
   );
 
@@ -211,7 +211,7 @@ export function createJevMcpServer(options = {}) {
 
   server.registerTool('jev_evaluate', {
     title: 'Evaluate bounded judgments with Jev',
-    description: 'Send one bounded, authorized semantic evaluation to typesafe-ai/jev. Not for calculations, trading decisions, order execution, credentials, or private wallet data. Returns typed answers, probabilities, raw confidence where available, and a private audit record ID.',
+    description: 'Send one bounded, authorized semantic evaluation directly to the official TypeSafe API using jev-latest. Not for calculations, trading decisions, order execution, credentials, or private wallet data. Returns typed answers, probabilities, raw confidence where available, and a private audit record ID.',
     inputSchema: evaluationInputSchema,
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true }
   }, async (input) => {
