@@ -1,9 +1,36 @@
 # codex-model-routing
-A Codex skill for task-based model selection, reasoning effort, and agent delegation—balancing quality, cost, and speed.
+A skill for task-based model routing, Jev judgments, and persistent client instructions.
 
 按任务的明确程度、上下文复杂度和验收风险选择模型与思考档位。支持按需委派，也支持“主代理分析验收、全部编码交给子代理”的工作方式。
 
-这是一个纯指令型 Skill，不需要安装依赖或运行安装脚本。它不会自动修改 Codex 配置、切换当前模型或开通模型权限。
+包含模型分工指令、Jev 调用说明、通用规则模板与可选的配置脚本。普通使用不需要安装依赖；配置辅助脚本用 Python 标准库，Jev 调用脚本用 Node.js 22+，无需 `npm install`。克隆不会自行修改客户端规则、切换模型或开通 API。
+
+## 一次配置，后续会话沿用
+
+把完整 Skill 交给支持本地技能的客户端后，可以这样要求：
+
+```text
+使用 model-task-routing，为当前客户端配置持久化默认规则：主推理模型负责复杂推理，Jev 负责适合的语义判断，代码负责计算和流程；每轮回复报告 Jev 使用记录与原始置信度。按客户端实际入口合并，保留已有规则并验证作用域。Accio Work 仅配置当前 Agent，不能声称账号全局。
+```
+
+| 客户端 | 持久化入口 |
+|---|---|
+| Codex | 实际 `CODEX_HOME` 的 `AGENTS.md` 或生效的 `AGENTS.override.md` |
+| Antigravity | `~/.gemini/GEMINI.md` 全局 Rules |
+| Accio Work | 当前 Agent 的 `agent-core/AGENTS.md`，需要实际路径证据 |
+
+安装位置、预览/写入命令、备份、重复安装与旧规则合并见 [客户端配置说明](docs/client-setup.md)。支持的是宿主指令机制，不能保证所有模型都严格执行；配置后应在新会话核对加载结果。其他设备从 GitHub 安装时只得到已推送版本，不会收到你的未提交修改或凭证。
+
+## 如何实际调用 Jev
+
+AI 读取 [本机调用说明](docs/jev-invocation.md)，准备必要输入。客户端已经配置本机 Jev MCP 时，优先使用 `jev_check` / `jev_evaluate` / `jev_get_record`；否则调用随 Skill 附带的脚本。MCP 安装、工具与安全边界见 [本机 Jev MCP](docs/jev-mcp.md)。模型固定为 `typesafe-ai/jev`，通过 Vercel AI Gateway 的评价接口调用，不替换主代理的聊天模型。认证走 `AI_GATEWAY_API_KEY` 或 Windows 本机加密凭证；公共仓库不含密钥。
+
+```bash
+node scripts/jev-evaluate.mjs --input examples/jev-request.json --check
+node scripts/jev-evaluate.mjs --input examples/jev-request.json --output /absolute/private-path/jev-result.json
+```
+
+第一条离线检查不会调用模型；第二条在凭证与授权具备时发送一次真实请求。`--output` 指向任务的私有证据目录，不能覆盖旧记录。脚本会保存答案、原始 confidence、用量、失败与复核状态；不会执行 Jev 选择的业务动作。
 
 ## 快速安装
 
@@ -119,15 +146,17 @@ git -C "$HOME/.agents/skills/model-task-routing" pull --ff-only
 git -C .agents/skills/model-task-routing pull --ff-only
 ```
 
-如有本地修改或更新冲突，先检查并保留自己的内容，不要强制覆盖。
+如有本地修改或更新冲突，先检查并保留自己的内容，不要强制覆盖。更新 Skill 文件不等于已更新常驻规则；用户要求同步规则时重新执行预览和合并。已有托管块仅在块内替换，无变化不重复写入；原有自定义规则须保留。
 
 ## 卸载
 
-删除安装时创建的 `model-task-routing` 目录即可。若曾手动在 `AGENTS.md` 中加入引用，也需自行移除。操作前保留自己的修改。
+删除安装时创建的 `model-task-routing` 目录前保留自己的修改。曾配置常驻规则的，还需在实际客户端指令文件中只移除本 Skill 的托管块及相关引用，保留其他内容；移除 Skill 不会自动清空规则或删除本机凭证。需要撤销当前 Windows Jev 凭证时，单独处理已确认的 DPAPI 文件，不删除整个客户端目录。
 
 ## 验证与反馈
 
 本版本通过 Skill 元数据格式检查。安装目录与更新命令经过隔离目录验证；对按需执行、强制委派受阻、Luna 实现测试、Astra 执行疑难任务四种情形完成了规则一致性走查。尚未完成跨客户端自动触发测试或模型成本对照实验。
+
+新增规则同步脚本通过 12 项 Python 隔离测试；Jev 调用器与 MCP 桥接层通过 12 项 Node 离线测试，包含真实 CLI 入口、官方问题格式、Windows 常见 JSON 编码、敏感输入拒绝、临时输入清理和审计记录读取。Windows DPAPI 包装器支持系统 PowerShell 5.1 与 PowerShell 7；本机 STDIO MCP 已完成工具发现、离线检查与一次真实网关评价调用。三个客户端的文件适配在隔离目录验证；未完成 Antigravity / Accio Work 的 MCP 客户端加载测试。单次调用不证明固定节省比例或业务判断准确率。
 
 欢迎通过 Issues 或 Pull Requests 提交问题与改进。报告时请说明客户端、可用模型、任务类型和预期行为，不要提交密钥、个人聊天记录或业务私密数据。
 
