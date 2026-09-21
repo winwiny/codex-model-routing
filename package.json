@@ -1,22 +1,28 @@
 {
   "name": "codex-model-routing-local",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Local Jev evaluator and MCP bridge for the model-task-routing skill.",
+  "description": "Cross-platform local CLI and MCP bridge for TypeSafe Jev.",
+  "bin": {
+    "jev": "./scripts/jev-cli.mjs",
+    "jev-mcp": "./scripts/jev-mcp-server.mjs"
+  },
   "scripts": {
     "test": "node --test tests/*.test.mjs",
     "test:mcp": "node --test tests/jev-mcp-server.test.mjs",
-    "start:mcp": "node scripts/jev-mcp-server.mjs"
+    "start:mcp": "node scripts/jev-mcp-server.mjs",
+    "check": "node scripts/jev-cli.mjs doctor"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "2.0.0",
+    "@typesafe-ai/sdk": "0.6.0",
     "zod": "4.6.5"
   },
   "devDependencies": {
     "@modelcontextprotocol/client": "2.0.0"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=20"
   }
 }

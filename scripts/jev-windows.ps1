@@ -125,7 +125,14 @@ try {
       }
     }
 
-    $plainKey = [Environment]::GetEnvironmentVariable('TYPESAFE_API_KEY', 'Process')
+    $allowEnvironment = [Environment]::GetEnvironmentVariable('JEV_ALLOW_ENV_CREDENTIAL', 'Process') -ceq '1' `
+      -or -not [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable('CI', 'Process'))
+    $plainKey = if ($allowEnvironment) {
+      [Environment]::GetEnvironmentVariable('TYPESAFE_API_KEY', 'Process')
+    } else {
+      $null
+    }
+    $credentialSource = if ([string]::IsNullOrWhiteSpace($plainKey)) { $null } else { 'environment-explicit' }
     if ([string]::IsNullOrWhiteSpace($plainKey) -and (Test-Path -LiteralPath $credentialFile -PathType Leaf)) {
       $failureMessage = 'Unable to decrypt CredentialPath for this Windows user; use its original user or configure a new file.'
       $encryptedKey = [IO.File]::ReadAllText($credentialFile)
@@ -134,11 +141,13 @@ try {
         $plainBytes = [Security.Cryptography.ProtectedData]::Unprotect(
           $protectedBytes, $null, [Security.Cryptography.DataProtectionScope]::CurrentUser)
         $plainKey = [Text.Encoding]::Unicode.GetString($plainBytes)
+        $credentialSource = 'windows-dpapi'
       } else {
         # Read credentials created by the original PowerShell SecureString format.
         $secureKey = ConvertTo-SecureString -String $encryptedKey
         $secretBstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureKey)
         $plainKey = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($secretBstr)
+        $credentialSource = 'windows-dpapi'
       }
     }
 
@@ -172,9 +181,15 @@ try {
     }
     if (-not [string]::IsNullOrWhiteSpace($plainKey)) {
       $startInfo.EnvironmentVariables['TYPESAFE_API_KEY'] = $plainKey
+      if ($credentialSource -ceq 'windows-dpapi') {
+        $startInfo.EnvironmentVariables['JEV_CREDENTIAL_SOURCE'] = 'windows-dpapi'
+      } else {
+        $startInfo.EnvironmentVariables.Remove('JEV_CREDENTIAL_SOURCE')
+      }
     } else {
       # A missing key is left to the evaluator, which writes structured evidence.
       $startInfo.EnvironmentVariables.Remove('TYPESAFE_API_KEY')
+      $startInfo.EnvironmentVariables.Remove('JEV_CREDENTIAL_SOURCE')
     }
 
     $process = [Diagnostics.Process]::new()
@@ -197,6 +212,7 @@ try {
   if ($null -ne $writer) { $writer.Dispose() }
   if ($null -ne $stream) { $stream.Dispose() }
   if ($null -ne $startInfo) { $startInfo.EnvironmentVariables.Remove('TYPESAFE_API_KEY') }
+  if ($null -ne $startInfo) { $startInfo.EnvironmentVariables.Remove('JEV_CREDENTIAL_SOURCE') }
   if ($null -ne $process) { $process.Dispose() }
   if ($secretBstr -ne [IntPtr]::Zero) {
     [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($secretBstr)

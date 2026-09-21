@@ -1,64 +1,68 @@
-# 在其他 Windows 电脑安装 Jev MCP
+# 在 macOS 与 Windows 安装 Jev Bridge
 
-安装包不包含 API Key。每台电脑必须使用自己的 Windows 用户在本机配置 TypeSafe 官方密钥；DPAPI 凭证绑定 Windows 用户，不能从另一台电脑复制后继续使用。
+安装包不包含凭证。要求 Node.js 20+ 与 npm。安装器先复制到同卷 staging、执行 `npm ci`、完整 `npm test` 和 CLI 冒烟，再替换正式目录；失败时保留 failed staging/安装并恢复旧版本。不要复制其他电脑的 Keychain 或 DPAPI 凭证。
 
-## 自动安装
+## macOS：安装或安全升级
 
-要求：Windows、Node.js 22+、npm、Codex CLI，以及从 [TypeSafe 控制台](https://console.typesafe.ai/keys) 创建的官方 API Key。
+```sh
+sh scripts/install-jev-macos.sh
+```
 
-1. 解压安装包，打开 PowerShell，进入解压目录。
-2. 运行：
+默认目标为 `~/.local/share/jev-bridge`，稳定入口为 `~/.local/bin/jev` 与 `~/.local/bin/jev-mcp`。已有安装会先移动为带 UTC 时间的 `.backup-*`，新版本成功后仍保留该备份，便于人工恢复。提交替换前，安装器会实际通过这两个最终 symlink 执行 CLI help 与 MCP list-tools 冒烟；MCP 冒烟不读取凭证、不调用模型。脚本不创建、修改或删除 Keychain 项，只读取仓库文件并安装 npm 依赖。
+
+自定义位置：
+
+```sh
+sh scripts/install-jev-macos.sh \
+  --install-root /absolute/path/jev-bridge \
+  --bin-dir /absolute/path/bin
+```
+
+TypeSafe 官方凭证应由用户在“钥匙串访问”中预先新增密码项目：service/name 为 `typesafe-ai-direct`，account 为当前 macOS 短用户名，密码字段保存 API Key。使用 GUI 避免把密钥放到 shell history 或命令行。安装后运行 `jev doctor` 仅做本地检查；不要为普通安装验证使用 `--live`。
+
+## Windows：首次安装或显式升级
+
+首次安装：
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\install-jev-mcp-windows.ps1
 ```
 
-3. 在隐藏提示中输入 `TYPESAFE_API_KEY`。脚本会：
-   - 把运行文件复制到 `%LOCALAPPDATA%\ModelTaskRouting\jev-mcp`；
-   - 安装锁定版本的生产依赖；
-   - 把密钥保存为 `%LOCALAPPDATA%\ModelTaskRouting\typesafe.dpapi`；
-   - 注册 Codex STDIO MCP `jev`；
-   - 执行一次网络请求为 0 的离线检查。
-4. 重启 Codex，确认工具列表含 `jev_check`、`jev_evaluate`、`jev_get_record`。
-
-安装脚本不会覆盖已有安装目录、已有 DPAPI 凭证或已有的 `jev` MCP 配置。遇到已有配置时应先核对，而不是自动删除。
-
-## 密钥配置方式
-
-推荐 Windows 使用 DPAPI：
+已有安装时脚本默认拒绝覆盖。明确升级才使用：
 
 ```powershell
-powershell.exe -NoProfile -File "$env:LOCALAPPDATA\ModelTaskRouting\jev-mcp\scripts\jev-windows.ps1" -Setup
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\install-jev-mcp-windows.ps1 -Upgrade
 ```
 
-也可以在启动 MCP 的受控进程环境中提供 `TYPESAFE_API_KEY`。不要把真实密钥写入 Git、README、聊天记录、共享 ZIP、Codex `config.toml` 或 MCP 参数。
+默认安装到 `%LOCALAPPDATA%\ModelTaskRouting\jev-bridge`，并生成稳定入口 `%LOCALAPPDATA%\ModelTaskRouting\bin\jev.cmd` 与 `jev-mcp.cmd`。升级会保留 `.backup-<UTC>`；staging 或替换失败时恢复旧目录与旧入口。
 
-以下文件不能跨电脑直接复制：
-
-```text
-%LOCALAPPDATA%\ModelTaskRouting\typesafe.dpapi
-```
-
-它只能由创建它的 Windows 用户解密。若多台电脑使用同一个 TypeSafe Key，也要在每台电脑上分别通过隐藏输入生成各自的 DPAPI 文件。
-
-## 离线检查
+凭证配置是显式动作。首次安装时可加 `-SetupCredential`，也可以稍后执行：
 
 ```powershell
-powershell.exe -NoProfile -File "$env:LOCALAPPDATA\ModelTaskRouting\jev-mcp\scripts\jev-windows.ps1" `
-  -InputPath "$env:LOCALAPPDATA\ModelTaskRouting\jev-mcp\examples\jev-request.json" -Check
+powershell.exe -NoProfile -File "$env:LOCALAPPDATA\ModelTaskRouting\jev-bridge\scripts\jev-windows.ps1" -Setup
 ```
 
-应看到 `provider=typesafe-direct`、官方端点、`model=jev-latest`、`apiKeyConfigured=true` 和 `requestsAttempted=0`。
+隐藏输入会写入 DPAPI CurrentUser 文件 `%LOCALAPPDATA%\ModelTaskRouting\typesafe.dpapi`，已存在时不覆盖。该文件只能在创建它的 Windows 用户上下文中解密。
 
-离线检查不证明密钥有效。安装后再用虚构、非敏感输入完成一次最小真实调用，并检查审计记录中的返回模型、答案、概率和 confidence。
+`-RegisterCodex` 也是显式选项；默认不修改任何客户端配置。推荐从安装器 JSON 输出复制 `mcpNodeCommand` 与 `mcpScript`，在 Codex、Claude Desktop、Cursor 三处使用完全相同的绝对启动命令，不添加 API Key 参数。
 
-## 只安装文件
+## 可选环境变量备用
 
-自动化测试或尚未安装 Codex CLI 时，可以跳过密钥与 MCP 注册：
+只有 CI 或用户明确设置 `JEV_ALLOW_ENV_CREDENTIAL=1` / CLI `--allow-env` 时才读取 `TYPESAFE_API_KEY`。原生 Keychain/DPAPI 优先。不要把真实密钥放进 Git、共享压缩包、MCP 配置、命令行或日志。
+
+## 离线验证
+
+```sh
+npm ci
+npm test
+node scripts/jev-cli.mjs help
+```
+
+Windows 实机还应运行：
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\install-jev-mcp-windows.ps1 `
-  -SkipCredentialSetup -SkipCodexRegistration
+powershell.exe -NoProfile -File .\tests\jev-windows-compat.tests.ps1
+powershell.exe -NoProfile -File .\tests\jev-windows-installer.tests.ps1
 ```
 
-之后按本文件前面的步骤单独配置密钥和 MCP。
+以上均不调用真实 Jev。只有用户明确授权并配置凭证后，才用 `jev doctor --live` 做连通性验证。

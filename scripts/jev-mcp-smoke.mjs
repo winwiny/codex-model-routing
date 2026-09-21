@@ -5,13 +5,14 @@ import { Client } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 
 function parseArgs(args) {
-  const options = { live: false, record: null };
+  const options = { live: false, listOnly: false, record: null };
   for (let index = 0; index < args.length; index += 1) {
     if (args[index] === '--live') options.live = true;
+    else if (args[index] === '--list-only') options.listOnly = true;
     else if (args[index] === '--server') options.server = args[++index];
     else if (args[index] === '--output') options.output = args[++index];
     else if (args[index] === '--record') options.record = args[++index];
-    else throw new Error('Usage: node scripts/jev-mcp-smoke.mjs --server <path> [--live] [--record <id>] --output <path>');
+    else throw new Error('Usage: node scripts/jev-mcp-smoke.mjs --server <path> [--list-only] [--live] [--record <id>] --output <path>');
   }
   if (!options.server) throw new Error('--server is required.');
   if (options.output === undefined) throw new Error('--output is required.');
@@ -26,19 +27,17 @@ const client = new Client({ name: 'local-jev-smoke', version: '0.1.0' });
 try {
   await client.connect(transport);
   const listed = await client.listTools();
-  const check = await client.callTool({ name: 'jev_check', arguments: {} });
+  const check = options.listOnly ? null : await client.callTool({ name: 'typesafe_check', arguments: {} });
   const result = {
     toolNames: listed.tools.map((tool) => tool.name).sort(),
-    check: check.structuredContent ?? null,
+    check: check?.structuredContent ?? null,
     live: null,
     record: null
   };
   if (options.live) {
     const live = await client.callTool({
-      name: 'jev_evaluate',
+      name: 'typesafe_evaluate',
       arguments: {
-        schemaVersion: 'jev-mcp-smoke-v1',
-        purpose: 'Verify the local MCP-to-Jev path with fictional, non-sensitive text.',
         state: 'A customer asks whether a fixed arithmetic formula should be handled by code or by a semantic classifier.',
         questions: {
           handler: {
@@ -57,7 +56,7 @@ try {
     result.live = live.structuredContent ?? null;
   }
   if (options.record) {
-    const record = await client.callTool({ name: 'jev_get_record', arguments: { recordId: options.record } });
+    const record = await client.callTool({ name: 'typesafe_get_record', arguments: { recordId: options.record } });
     result.record = record.structuredContent ?? null;
   }
   await writeFile(resolve(options.output), `${JSON.stringify(result, null, 2)}\n`, { encoding: 'utf8', flag: 'wx' });

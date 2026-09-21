@@ -3,7 +3,7 @@ A skill for task-based model routing, Jev judgments, and persistent client instr
 
 按任务的明确程度、上下文复杂度和验收风险选择模型与思考档位。支持按需委派，也支持“主代理分析验收、全部编码交给子代理”的工作方式。
 
-包含模型分工指令、Jev 调用说明、通用规则模板与可选的配置脚本。普通使用不需要安装依赖；配置辅助脚本用 Python 标准库，Jev 调用脚本用 Node.js 22+，无需 `npm install`。克隆不会自行修改客户端规则、切换模型或开通 API。
+包含模型分工指令、Jev 调用说明、通用规则模板与可选的配置脚本。规则同步只用 Python 标准库；统一 Jev CLI / STDIO MCP 使用 Node.js 20+ 与官方 `@typesafe-ai/sdk@0.6.0`。克隆不会自行修改客户端规则、凭证、模型或服务权限。
 
 ## 一次配置，后续会话沿用
 
@@ -23,16 +23,16 @@ A skill for task-based model routing, Jev judgments, and persistent client instr
 
 ## 如何实际调用 Jev
 
-AI 读取 [本机调用说明](docs/jev-invocation.md)，准备必要输入。客户端已经配置本机 Jev MCP 时，优先使用 `jev_check` / `jev_evaluate` / `jev_get_record`；否则调用随 Skill 附带的脚本。MCP 安装、工具与安全边界见 [本机 Jev MCP](docs/jev-mcp.md)。模型固定为官方别名 `jev-latest`，直接调用 TypeSafe 的 `POST https://api.typesafe.ai/v1/systemone`，不替换主代理的聊天模型。认证走 `TYPESAFE_API_KEY` 或 Windows 本机加密凭证；公共仓库不含密钥。
+AI 读取 [本机调用说明](docs/jev-invocation.md)，准备必要输入。客户端已经配置本机 Jev MCP 时，优先使用 canonical `typesafe_check` / `typesafe_evaluate`；否则使用 `jev doctor` / `jev evaluate`。两者共用官方 SDK 核心、`jev-latest` 与 TypeSafe 官方直连，不替换主代理聊天模型。macOS 默认读取 Keychain service `typesafe-ai-direct`，Windows 默认读取 DPAPI CurrentUser；环境变量只作为显式或 CI 备用。公共仓库、MCP 参数、日志与记录都不含密钥。
 
-要在其他 Windows 电脑安装，使用 [跨电脑安装说明](docs/install-other-computers.md) 与 `scripts/install-jev-mcp-windows.ps1`。不要复制当前电脑的 DPAPI 文件；在每台电脑上分别通过隐藏提示配置官方 API Key。
+macOS 与 Windows 的 staged 安装、安全升级、凭证和三类客户端统一 MCP 启动命令见 [跨电脑安装说明](docs/install-other-computers.md)。macOS 入口稳定为 `~/.local/bin/jev` / `jev-mcp`；Windows 入口稳定为 `%LOCALAPPDATA%\ModelTaskRouting\bin\jev.cmd` / `jev-mcp.cmd`。
 
 ```bash
-node scripts/jev-evaluate.mjs --input examples/jev-request.json --check
-node scripts/jev-evaluate.mjs --input examples/jev-request.json --output /absolute/private-path/jev-result.json
+jev doctor
+jev evaluate < examples/jev-request.json
 ```
 
-第一条离线检查不会调用模型；第二条在凭证与授权具备时发送一次真实请求。`--output` 指向任务的私有证据目录，不能覆盖旧记录。脚本会保存答案、原始 confidence、用量、失败与复核状态；不会执行 Jev 选择的业务动作。
+第一条离线检查不会调用模型；第二条在凭证与授权具备时发送请求。MCP 默认不持久化 state 或结果；只有进程所有者显式启用审计时才保存 result-only 记录。Jev 只返回判断，不执行选择的业务动作。
 
 ## 快速安装
 
@@ -158,7 +158,7 @@ git -C .agents/skills/model-task-routing pull --ff-only
 
 本版本通过 Skill 元数据格式检查。安装目录与更新命令经过隔离目录验证；对按需执行、强制委派受阻、Luna 实现测试、Astra 执行疑难任务四种情形完成了规则一致性走查。尚未完成跨客户端自动触发测试或模型成本对照实验。
 
-新增规则同步脚本通过 Python 隔离测试；Jev 调用器与 MCP 桥接层包含 CLI 入口、官方问题格式、Windows 常见 JSON 编码、敏感输入拒绝、临时输入清理和审计记录读取测试。Windows DPAPI 包装器支持系统 PowerShell 5.1 与 PowerShell 7。迁移到官方 TypeSafe API 后，需要配置官方密钥并完成一次最小真实请求，才能声称当前凭证与网络链路已经接通。三个客户端的文件适配在隔离目录验证；未完成 Antigravity / Accio Work 的 MCP 客户端加载测试。单次调用不证明固定节省比例或业务判断准确率。
+规则同步脚本通过 Python 隔离测试；统一 Jev 核心覆盖官方 SDK 映射、完整 EntryType schema、敏感拦截、输入/问题限制、MCP structuredContent、单并发与每分钟限流、可注入 macOS Keychain 适配器及 Windows wrapper 兼容。默认 MCP 无状态，兼容别名与 result-only 审计均需显式开启。尚需在 Windows 实机验证 DPAPI、安装回滚与客户端加载；只有用户明确执行最小 live check 后，才能声称真实凭证与网络链路接通。
 
 欢迎通过 Issues 或 Pull Requests 提交问题与改进。报告时请说明客户端、可用模型、任务类型和预期行为，不要提交密钥、个人聊天记录或业务私密数据。
 

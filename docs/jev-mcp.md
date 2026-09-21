@@ -1,45 +1,39 @@
-# 本机 Jev MCP
+# TypeSafe Jev STDIO MCP
 
-`scripts/jev-mcp-server.mjs` 是 Windows 本地 STDIO MCP Server。它不在本机运行 Jev 模型，而是把 MCP 的结构化参数交给现有 `jev-windows.ps1` 与 `jev-evaluate.mjs`，直接调用 TypeSafe 官方 `POST https://api.typesafe.ai/v1/systemone`，请求模型别名固定为 `jev-latest`。
+`scripts/jev-mcp-server.mjs` 可在 macOS 与 Windows 运行，和 CLI 共用官方 SDK 核心与平台凭证适配器。
 
-## 工具
+默认只暴露两个工具：
 
-- `jev_check`：检查 Node、输入 schema 与 DPAPI 凭证是否可读；网络请求为 0。
-- `jev_evaluate`：执行一次 Choice、Noul 或 Score 判断，返回脱敏证据和 `recordId`。
-- `jev_get_record`：按 `recordId` 读取脱敏证据，不允许任意路径。
+- `typesafe_check`：离线检查 Node、平台和凭证可用性，模型请求为 0。
+- `typesafe_evaluate`：调用一次共享核心，返回 `content` 与相同对象的 `structuredContent`。
 
-工具不提供下单、撤单、钱包、签名或任意命令执行能力。模型、官方 API 地址、超时、输入大小与问题数量均由服务器固定。服务器一次只处理一个评价请求，并限制为每分钟最多 20 次，避免客户端循环失控。凭证不进入 MCP 参数、配置、stdout 或审计记录。
+Server 对 evaluate 实施单并发和滚动 20 次/分钟限制。SDK 内部重试由请求的 `maxRetries` 控制（默认 2、最大 5）；别名不会串联调用 canonical 工具。
 
-## 安装与运行
+默认不创建 state、临时请求或审计目录，也不持久化结果。只有进程所有者明确设置 `JEV_ENABLE_RECORDS=1` 时，才额外暴露 `typesafe_get_record` 并保存“结果-only”的脱敏记录；原始 state 永不进入记录。`JEV_ENABLE_BETA_ALIASES=1` 可临时暴露旧 beta 名 `jev_check` / `jev_evaluate`；旧 `jev_evaluate` 接受 `schemaVersion`、`purpose`、`state`、`questions` 格式，移除本地元数据后经过同一个限流器与核心，调用一次只会执行一次 evaluation。审计也开启时同时暴露 `jev_get_record`。迁移完成后应关闭这些别名。
 
-其他 Windows 电脑优先使用 [跨电脑安装说明](install-other-computers.md) 和 `scripts/install-jev-mcp-windows.ps1`。安装包不含密钥；每台电脑必须在本机隐藏输入一次，生成绑定该 Windows 用户的 DPAPI 凭证。
+## 所有客户端使用同一个命令
 
-仓库开发环境：
+macOS 安装后的绝对命令：
 
-```powershell
-npm ci --ignore-scripts
-npm test
-node scripts/jev-mcp-server.mjs
+```text
+/Users/<user>/.local/bin/jev-mcp
 ```
 
-把 MCP 安装到一个不会随项目清理而消失的本机目录。Codex 用户配置示例（将路径替换为实际安装位置）：
+Windows MCP 配置应使用安装器输出的同一组绝对值：
 
-```toml
-[mcp_servers.jev]
-command = 'C:\Program Files\nodejs\node.exe'
-args = ['C:\Tools\jev-mcp\scripts\jev-mcp-server.mjs']
-enabled = true
-startup_timeout_sec = 30
-tool_timeout_sec = 45
-enabled_tools = ["jev_check", "jev_evaluate", "jev_get_record"]
+```text
+command = C:\Program Files\nodejs\node.exe
+args = [C:\Users\<user>\AppData\Local\ModelTaskRouting\jev-bridge\scripts\jev-mcp-server.mjs]
 ```
 
-重新启动客户端后查看 MCP 工具列表。客户端位于沙箱、云端、另一 Windows 用户或不支持 STDIO MCP 时，不能据此声称已经接通本机服务。
+把这组 `command` / `args` 原样用于 Codex、Claude Desktop 与 Cursor，不给任何客户端添加密钥参数。不同客户端的配置文件语法可能不同，但启动命令必须相同。终端还可使用安装器生成的 `%LOCALAPPDATA%\ModelTaskRouting\bin\jev-mcp.cmd`。
 
-## 数据与记录
+## 开发期离线冒烟
 
-- 临时输入：`%LOCALAPPDATA%/ModelTaskRouting/mcp/tmp`，每次调用后删除。
-- 脱敏记录：`%LOCALAPPDATA%/ModelTaskRouting/mcp/records`。
-- 凭证：`%LOCALAPPDATA%/ModelTaskRouting/typesafe.dpapi`，由 Windows DPAPI CurrentUser 解密。旧 `ai-gateway.dpapi` 不会被读取。
+```sh
+node scripts/jev-mcp-smoke.mjs \
+  --server scripts/jev-mcp-server.mjs \
+  --output /tmp/jev-mcp-smoke.json
+```
 
-MCP 层拒绝常见 API Key、私钥、助记词、签名字段和超过 64 KiB 的输入。服务返回成功仍不代表判断正确或获得操作授权；Choice/Score 报原始 confidence，Noul 报 `p(true)`。
+不加 `--live` 时只列工具并执行 `typesafe_check`，不会调用模型。不要在一般验证中加入 `--live`。

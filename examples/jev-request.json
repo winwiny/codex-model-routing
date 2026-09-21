@@ -1,6 +1,4 @@
 {
-  "schemaVersion": "routing-example-v1",
-  "purpose": "用虚构文本演示有边界的任务分类，不执行分类结果",
   "model": "jev-latest",
   "state": {"text": "请按已给公式计算这张订单的总价，不需要推测缺失价格。"},
   "questions": {

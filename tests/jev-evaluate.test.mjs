@@ -1,101 +1,192 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { spawnSync } from 'node:child_process';
-import { evaluateRequest, runCli } from '../scripts/jev-evaluate.mjs';
+import test from 'node:test';
+import { TypeSafeClient } from '@typesafe-ai/sdk';
+import { evaluateJev } from '../scripts/jev-core.mjs';
+import {
+  EnvironmentCredentialStore,
+  MacOSKeychainCredentialStore,
+  WindowsDpapiCredentialStore
+} from '../scripts/jev-credentials.mjs';
+import { JevError } from '../scripts/jev-errors.mjs';
+import { parseAndNormalizeRequest } from '../scripts/jev-schemas.mjs';
+import { runLegacyCli } from '../scripts/jev-evaluate.mjs';
+import { runCli } from '../scripts/jev-cli.mjs';
 
 const examplePath = resolve('examples/jev-request.json');
-const request = JSON.parse(await readFile(examplePath, 'utf8'));
-const answerBody = {
-  model: 'jev-1.13.0',
-  answers: {
-    task_route: {
-      type: 'choice',
-      choice: 'code',
-      probabilities: { code: 0.8, reasoning: 0.1, review: 0.05, jev: 0.05 },
-      confidence: 0.5
+const example = JSON.parse(await readFile(examplePath, 'utf8'));
+const fakeCredential = { apiKey: 'unit-test-credential-not-real', source: 'test' };
+
+function responseFor(questions) {
+  return {
+    model: 'jev-test-model',
+    answers: Object.fromEntries(Object.entries(questions).map(([id, question]) => {
+      if (question.type === 'noul') return [id, { type: 'noul', noul: 0.75 }];
+      if (question.type === 'choice') {
+        const labels = Object.keys(question.criteria);
+        return [id, { type: 'choice', choice: labels[0], confidence: 0.8, probabilities: Object.fromEntries(labels.map((label, index) => [label, index ? 0.2 / (labels.length - 1) : 0.8])) }];
+      }
+      return [id, { type: 'score', score: 0.5, confidence: 0.6, legend: Object.fromEntries(question.criteria.map((value, index) => [index, value])), probabilities: Object.fromEntries(question.criteria.map((_value, index) => [index, index ? 0.5 : 0.5])) }];
+    })),
+    usage: { input_tokens: 7, output_tokens: 3 }
+  };
+}
+
+test('official schema accepts string/object/array/null entries and normalizes boolean to noul', () => {
+  for (const state of ['text', { nested: [1, true, null, { text: 'x' }] }, ['a', { b: 2 }], null]) {
+    const request = parseAndNormalizeRequest({
+      state,
+      questions: {
+        yes: { type: 'noul', instructions: null, criteria: { true: { meaning: 'yes' }, false: ['no'] } },
+        legacy: { type: 'boolean', instructions: ['compatibility', { only: true }], criteria: null },
+        route: { type: 'choice', instructions: { task: 'choose' }, criteria: { a: null, b: ['other'] } },
+        degree: { type: 'score', instructions: 'score', criteria: [null, { label: 'high' }] }
+      }
+    });
+    assert.deepEqual(request.state, state);
+    assert.equal(request.questions.legacy.type, 'noul');
+  }
+});
+
+test('shared core maps through official SDK 0.6.0 with jev-latest', async () => {
+  let requestBody;
+  let requestUrl;
+  const result = await evaluateJev({
+    state: { text: 'fictional request' },
+    questions: {
+      legacy: { type: 'boolean', instructions: null },
+      route: { type: 'choice', instructions: { choose: 'one' }, criteria: { code: null, review: ['unclear'] } },
+      score: { type: 'score', instructions: ['rate'], criteria: [null, { high: true }] }
     },
-    missing_price_guess: { type: 'noul', noul: 0.01 }
-  },
-  usage: { input_tokens: 3, output_tokens: 1 }
-};
-
-test('reads documented object-schema example and posts it unchanged', async () => {
-  let captured;
-  const result = await evaluateRequest(request, { apiKey: 'safe-test-key', fetchImpl: async (_url, options) => { captured = options; return { ok: true, status: 200, json: async () => answerBody }; } });
-  assert.deepEqual(JSON.parse(captured.body), { model: 'jev-latest', state: request.state, questions: request.questions });
-  assert.equal(captured.headers.authorization, 'Bearer safe-test-key');
-  assert.equal(result.answers[0].status, 'review'); assert.equal(result.answers[1].answer.pTrue, 0.01); assert.equal(result.answers[1].confidence, null);
+    maxRetries: 0
+  }, {
+    credential: fakeCredential,
+    clientFactory: ({ apiKey, request }) => new TypeSafeClient({
+      apiKey,
+      defaultModel: 'jev-latest',
+      retry: { maxRetries: 0 },
+      logLevel: 'off',
+      fetch: async (url, init) => {
+        requestUrl = url;
+        requestBody = JSON.parse(init.body);
+        return new Response(JSON.stringify(responseFor(request.questions)), {
+          status: 200,
+          headers: { 'content-type': 'application/json' }
+        });
+      }
+    })
+  });
+  assert.equal(requestUrl, 'https://api.typesafe.ai/v1/systemone');
+  assert.equal(requestBody.model, 'jev-latest');
+  assert.equal(requestBody.questions.legacy.type, 'noul');
   assert.equal(result.provider, 'typesafe-direct');
-  assert.equal(result.endpoint, 'https://api.typesafe.ai/v1/systemone');
-  assert.deepEqual(result.usage, { inputTokens: 3, outputTokens: 1, totalTokens: 4 });
+  assert.equal(result.answers.legacy.type, 'noul');
+  assert.deepEqual(Object.keys(result.answers.legacy).sort(), ['noul', 'type']);
+  assert.deepEqual(result.usage, { inputTokens: 7, outputTokens: 3, totalTokens: 10 });
 });
 
-test('marks missing confidence and bad structures for review or validation fallback', async () => {
-  const scoreInput = { ...request, questions: { score: { type: 'score', instructions: 'Score only.', criteria: ['low', 'high'] } } };
-  const good = await evaluateRequest(scoreInput, { apiKey: 'safe-test-key', fetchImpl: async () => ({ ok: true, json: async () => ({ model: 'jev-1.13.0', answers: { score: { type: 'score', score: 0.5, legend: { 0: 'low', 1: 'high' }, probabilities: { 0: 0.5, 1: 0.5 } } } }) }) });
-  assert.equal(good.answers[0].confidenceStatus, 'missing');
-  const bad = await evaluateRequest(request, { apiKey: 'safe-test-key', fetchImpl: async () => ({ ok: true, json: async () => ({ ...answerBody, model: 'other' }) }) });
-  assert.equal(bad.error.code, 'validation_failure');
+test('rejects sensitive material and limits before creating an SDK client', async () => {
+  let created = false;
+  const clientFactory = () => { created = true; throw new Error('must not run'); };
+  await assert.rejects(() => evaluateJev({
+    state: { api_key: 'should-never-be-sent' },
+    questions: { yes: { type: 'noul' } }
+  }, { credential: fakeCredential, clientFactory }), (error) => error.code === 'sensitive_material_rejected');
+  await assert.rejects(() => evaluateJev({
+    state: 'x'.repeat(70 * 1024),
+    questions: { yes: { type: 'noul' } }
+  }, { credential: fakeCredential, clientFactory }), (error) => error.code === 'input_too_large');
+  assert.equal(created, false);
 });
 
-test('does not retry failures and rejects a credential before producing evidence', async () => {
-  let calls = 0;
-  const unauthorized = await evaluateRequest(request, { apiKey: 'safe-test-key', fetchImpl: async () => { calls += 1; return { ok: false, status: 401 }; } });
-  assert.equal(calls, 1); assert.equal(unauthorized.error.code, 'http_401');
-  const timeout = await evaluateRequest(request, { apiKey: 'safe-test-key', timeoutMs: 1, fetchImpl: async (_url, options) => new Promise((_resolve, reject) => options.signal.addEventListener('abort', () => reject(Object.assign(new Error(), { name: 'AbortError' })))) });
-  assert.equal(timeout.error.code, 'timeout');
-  const secret = await evaluateRequest({ ...request, purpose: 'prefix safe-test-key suffix', state: { 'safe-test-key': 'present' } }, { apiKey: 'safe-test-key', fetchImpl: async () => { throw new Error('must not call'); } });
-  assert.equal(secret.requestsAttempted, 0); assert.equal(JSON.stringify(secret).includes('safe-test-key'), false);
+test('question limits and stable SDK failure codes are enforced', async () => {
+  const questions = Object.fromEntries(Array.from({ length: 17 }, (_, index) => [`q${index}`, { type: 'noul' }]));
+  await assert.rejects(() => evaluateJev({ state: 'x', questions }, { credential: fakeCredential }), (error) => error.code === 'input_schema_invalid');
+  await assert.rejects(() => evaluateJev(example, {
+    credential: fakeCredential,
+    clientFactory: () => ({ systemOne: async () => { throw new Error('contains unit-test-credential-not-real'); } })
+  }), (error) => error.code === 'evaluation_failed' && !error.message.includes(fakeCredential.apiKey));
+  await assert.rejects(() => evaluateJev({ state: 'x', questions: { yes: { type: 'noul' } } }, {
+    credential: fakeCredential,
+    clientFactory: () => ({
+      systemOne: async () => ({
+        model: 'jev-test',
+        answers: { yes: { type: 'noul', noul: 2 } },
+        usage: { input_tokens: 1, output_tokens: 1 }
+      })
+    })
+  }), (error) => error.code === 'response_schema_invalid');
 });
 
-test('actual CLI check needs no output and output collision makes no request', async () => {
-  const checked = spawnSync(process.execPath, ['scripts/jev-evaluate.mjs', '--input', examplePath, '--check'], { encoding: 'utf8' });
-  assert.equal(checked.status, 0); assert.equal(JSON.parse(checked.stdout).check.requestsAttempted, 0);
-  const dir = await mkdtemp(join(tmpdir(), 'jev-test-')); const output = join(dir, 'out.json'); await writeFile(output, 'exists');
-  await assert.rejects(() => runCli(['--input', examplePath, '--output', output], { apiKey: 'safe-test-key', fetchImpl: async () => { throw new Error('must not call'); } }));
-  assert.equal(await readFile(output, 'utf8'), 'exists');
+test('macOS Keychain adapter is injectable and never places a key in arguments', async () => {
+  let captured;
+  const store = new MacOSKeychainCredentialStore({
+    platform: 'darwin',
+    account: 'test-user',
+    execFileImpl: async (file, args, options) => {
+      captured = { file, args, options };
+      return { stdout: 'synthetic-key\n' };
+    }
+  });
+  assert.deepEqual(await store.get(), { apiKey: 'synthetic-key', source: 'macos-keychain' });
+  assert.equal(captured.file, '/usr/bin/security');
+  assert.deepEqual(captured.args, ['find-generic-password', '-a', 'test-user', '-s', 'typesafe-ai-direct', '-w']);
+  assert.equal(JSON.stringify(captured).includes('synthetic-key'), false);
 });
 
-test('missing credential keeps readable evidence and response metadata cannot leak a credential', async () => {
-  const missing = await evaluateRequest(request, { apiKey: '' });
-  assert.equal(missing.purpose, request.purpose);
-  assert.equal(missing.requestsAttempted, 0);
-  const body = structuredClone(answerBody);
-  body.model = 'prefix safe-test-key suffix';
-  body.usage = { input_tokens: 12, output_tokens: 4, secret: 'safe-test-key' };
-  const result = await evaluateRequest(request, { apiKey: 'safe-test-key', fetchImpl: async () => ({ ok: true, json: async () => body }) });
-  assert.equal(result.status, 'failed');
-  assert.equal(result.error.code, 'validation_failure');
-  assert.equal(JSON.stringify(result).includes('safe-test-key'), false);
+test('Windows DPAPI adapter is injectable and environment fallback is explicit or CI-only', async () => {
+  let argsSeen;
+  let optionsSeen;
+  const store = new WindowsDpapiCredentialStore({
+    platform: 'win32',
+    readerPath: resolve('scripts/read-jev-credential-windows.ps1'),
+    powershellPath: 'powershell.exe',
+    credentialPath: 'C:\\safe\\typesafe.dpapi',
+    execFileImpl: async (_file, args, options) => { argsSeen = args; optionsSeen = options; return { stdout: 'synthetic-key' }; }
+  });
+  assert.equal((await store.get()).source, 'windows-dpapi-current-user');
+  assert.deepEqual(argsSeen.slice(-2), ['-CredentialPath', 'C:\\safe\\typesafe.dpapi']);
+  const tokenIndex = argsSeen.indexOf('-PrivatePipeToken');
+  assert.ok(tokenIndex > 0);
+  assert.equal(optionsSeen.env.JEV_DPAPI_PIPE_NONCE, argsSeen[tokenIndex + 1]);
+  assert.equal(Object.hasOwn(optionsSeen.env, 'TYPESAFE_API_KEY'), false);
+  assert.equal(await new EnvironmentCredentialStore({ env: { TYPESAFE_API_KEY: 'x' } }).get(), undefined);
+  assert.equal((await new EnvironmentCredentialStore({ env: { TYPESAFE_API_KEY: 'x', CI: '1' } }).get()).source, 'environment-explicit');
 });
 
-test('actual CLI accepts Windows PowerShell UTF-8 BOM and UTF-16LE JSON without a request', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'jev-encoding-'));
-  const source = JSON.stringify(request);
+test('legacy file wrapper checks offline, preserves encodings, and never overwrites output', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'jev-wrapper-'));
+  const source = JSON.stringify(example);
   for (const [name, data] of [
-    ['utf8-bom.json', Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(source, 'utf8')])],
+    ['utf8-bom.json', Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(source)])],
     ['utf16-le.json', Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(source, 'utf16le')])]
   ]) {
     const path = join(dir, name);
     await writeFile(path, data);
-    const child = spawnSync(process.execPath, ['scripts/jev-evaluate.mjs', '--input', path, '--check'], { encoding: 'utf8' });
-    assert.equal(child.status, 0, child.stderr);
-    assert.equal(JSON.parse(child.stdout).check.requestsAttempted, 0);
+    const result = await runLegacyCli(['--input', path, '--check'], {
+      credentialStore: { get: async () => undefined }
+    });
+    assert.equal(result.check.requestsAttempted, 0);
+    assert.equal(result.check.inputValid, true);
   }
+  const output = join(dir, 'existing.json');
+  await writeFile(output, 'keep');
+  await assert.rejects(() => runLegacyCli(['--input', examplePath, '--output', output], {
+    credential: fakeCredential,
+    clientFactory: () => { throw new Error('must not run'); }
+  }), (error) => error.code === 'output_already_exists');
+  assert.equal(await readFile(output, 'utf8'), 'keep');
 });
 
-test('preflight errors distinguish malformed JSON from absent output directories without leaking input', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'jev-errors-'));
-  const invalid = join(dir, 'invalid.json');
-  await writeFile(invalid, '{sensitive invalid body');
-  const child = spawnSync(process.execPath, ['scripts/jev-evaluate.mjs', '--input', invalid, '--check'], { encoding: 'utf8' });
-  assert.equal(child.status, 1);
-  const diagnostic = JSON.parse(child.stderr);
-  assert.equal(diagnostic.error.code, 'input_json_or_encoding_invalid');
-  assert.equal(diagnostic.requestsAttempted, 0);
-  assert.equal(child.stderr.includes('sensitive'), false);
-  await assert.rejects(() => runCli(['--input', examplePath, '--output', join(dir, 'missing', 'out.json')], { fetchImpl: () => { throw new Error('No request expected'); } }), { preflightCode: 'output_parent_missing' });
+test('CLI doctor defaults to zero network requests', async () => {
+  const result = await runCli(['doctor'], {
+    credentialStore: {
+      has: async () => true,
+      get: async () => { throw new Error('doctor must not read the credential'); }
+    }
+  });
+  assert.equal(result.requestsAttempted, 0);
+  assert.equal(result.liveCheck, false);
 });

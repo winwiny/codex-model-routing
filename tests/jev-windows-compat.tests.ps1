@@ -78,6 +78,7 @@ function Invoke-Case {
     [string]$Name,
     [hashtable]$Options,
     [string]$FakeKey = '',
+    [switch]$AllowEnvironment,
     [switch]$WithoutNodePath
   )
   $caseDirectory = Join-Path $Fixture.Root $Name
@@ -105,7 +106,10 @@ function Invoke-Case {
   # PowerShell must not inherit incompatible bundled PowerShell 7 modules.
   $info.EnvironmentVariables.Remove('PSModulePath')
   $info.EnvironmentVariables.Remove('TYPESAFE_API_KEY')
+  $info.EnvironmentVariables.Remove('CI')
+  $info.EnvironmentVariables.Remove('JEV_ALLOW_ENV_CREDENTIAL')
   if ($FakeKey) { $info.EnvironmentVariables['TYPESAFE_API_KEY'] = $FakeKey }
+  if ($AllowEnvironment) { $info.EnvironmentVariables['JEV_ALLOW_ENV_CREDENTIAL'] = '1' }
   if ($WithoutNodePath) { $info.EnvironmentVariables['PATH'] = '' }
   $child = [Diagnostics.Process]::new()
   try {
@@ -177,8 +181,10 @@ for ($hostIndex = 0; $hostIndex -lt $fixtures.Count; $hostIndex++) {
   Assert-Run $relative 'dpapi' @('--check')
   $crossHost = Invoke-Case $fixture 'cross-host-dpapi' @{ CredentialPath = $fixtures[($hostIndex + 1) % $fixtures.Count].Credential }
   Assert-Run $crossHost 'dpapi' @('--check')
-  $priority = Invoke-Case $fixture 'environment-priority' @{} 'jev-compat-fake-env-key'
+  $priority = Invoke-Case $fixture 'environment-priority' @{} 'jev-compat-fake-env-key' -AllowEnvironment
   Assert-Run $priority 'environment' @('--check')
+  $ignoredEnvironment = Invoke-Case $fixture 'environment-not-explicit' @{} 'jev-compat-fake-env-key'
+  Assert-Run $ignoredEnvironment 'dpapi' @('--check')
   $missingPath = Join-Path $fixture.Root 'never-created/key.dpapi'
   $missingCheck = Invoke-Case $fixture 'missing-check' @{ CredentialPath = $missingPath }
   Assert-Run $missingCheck 'missing' @('--check')
@@ -187,7 +193,7 @@ for ($hostIndex = 0; $hostIndex -lt $fixtures.Count; $hostIndex++) {
   Assert-Case (-not (Test-Path -LiteralPath (Split-Path -Parent $missingPath))) 'Run mode created a credential directory.'
   $fallback = Invoke-Case $fixture 'node-without-path' @{} -WithoutNodePath
   Assert-Run $fallback 'dpapi' @('--check')
-  $results.Add(@{ host = $fixture.Host; cases = 14; status = 'passed' })
+  $results.Add(@{ host = $fixture.Host; cases = 15; status = 'passed' })
 }
 
 # Keep the synthetic fixtures for inspection; no recursive deletion is used.
