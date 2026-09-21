@@ -12,6 +12,8 @@
 
 ## 安装与运行
 
+其他 Windows 电脑优先使用 [跨电脑安装说明](install-other-computers.md) 和 `scripts/install-jev-mcp-windows.ps1`。安装包不含密钥；每台电脑必须在本机隐藏输入一次，生成绑定该 Windows 用户的 DPAPI 凭证。
+
 仓库开发环境：
 
 ```powershell

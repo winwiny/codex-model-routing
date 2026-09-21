@@ -25,6 +25,8 @@ A skill for task-based model routing, Jev judgments, and persistent client instr
 
 AI 读取 [本机调用说明](docs/jev-invocation.md)，准备必要输入。客户端已经配置本机 Jev MCP 时，优先使用 `jev_check` / `jev_evaluate` / `jev_get_record`；否则调用随 Skill 附带的脚本。MCP 安装、工具与安全边界见 [本机 Jev MCP](docs/jev-mcp.md)。模型固定为官方别名 `jev-latest`，直接调用 TypeSafe 的 `POST https://api.typesafe.ai/v1/systemone`，不替换主代理的聊天模型。认证走 `TYPESAFE_API_KEY` 或 Windows 本机加密凭证；公共仓库不含密钥。
 
+要在其他 Windows 电脑安装，使用 [跨电脑安装说明](docs/install-other-computers.md) 与 `scripts/install-jev-mcp-windows.ps1`。不要复制当前电脑的 DPAPI 文件；在每台电脑上分别通过隐藏提示配置官方 API Key。
+
 ```bash
 node scripts/jev-evaluate.mjs --input examples/jev-request.json --check
 node scripts/jev-evaluate.mjs --input examples/jev-request.json --output /absolute/private-path/jev-result.json
