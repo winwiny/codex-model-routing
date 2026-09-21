@@ -30,6 +30,12 @@ if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
   exit 1
 }
 
+# Windows PowerShell 5.1 does not load System.Security automatically, while
+# PowerShell 7 normally exposes ProtectedData through its runtime.
+if ($null -eq ('System.Security.Cryptography.ProtectedData' -as [type])) {
+  Add-Type -AssemblyName System.Security
+}
+
 function ConvertTo-WindowsArgument {
   param([AllowEmptyString()][string]$Value)
 
@@ -59,6 +65,8 @@ function ConvertTo-WindowsArgument {
 $secureKey = $null
 $plainKey = $null
 $encryptedKey = $null
+$plainBytes = $null
+$protectedBytes = $null
 $secretBstr = [IntPtr]::Zero
 $stream = $null
 $writer = $null
@@ -84,9 +92,13 @@ try {
       throw 'The key must not be empty.'
     }
 
-    # Omitting -Key selects Windows DPAPI with the current user scope.
     $failureMessage = 'Unable to encrypt the credential with Windows DPAPI for the current user.'
-    $encryptedKey = ConvertFrom-SecureString -SecureString $secureKey
+    $secretBstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureKey)
+    $plainBytes = [byte[]]::new($secureKey.Length * 2)
+    [Runtime.InteropServices.Marshal]::Copy($secretBstr, $plainBytes, 0, $plainBytes.Length)
+    $protectedBytes = [Security.Cryptography.ProtectedData]::Protect(
+      $plainBytes, $null, [Security.Cryptography.DataProtectionScope]::CurrentUser)
+    $encryptedKey = 'dpapi-utf16-v2:' + [Convert]::ToBase64String($protectedBytes)
     $failureMessage = 'Unable to create the credential file; existing files are not overwritten.'
     [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($credentialFile)) | Out-Null
     $stream = [IO.File]::Open($credentialFile, [IO.FileMode]::CreateNew,
@@ -117,9 +129,17 @@ try {
     if ([string]::IsNullOrWhiteSpace($plainKey) -and (Test-Path -LiteralPath $credentialFile -PathType Leaf)) {
       $failureMessage = 'Unable to decrypt CredentialPath for this Windows user; use its original user or configure a new file.'
       $encryptedKey = [IO.File]::ReadAllText($credentialFile)
-      $secureKey = ConvertTo-SecureString -String $encryptedKey
-      $secretBstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureKey)
-      $plainKey = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($secretBstr)
+      if ($encryptedKey.StartsWith('dpapi-utf16-v2:')) {
+        $protectedBytes = [Convert]::FromBase64String($encryptedKey.Substring('dpapi-utf16-v2:'.Length))
+        $plainBytes = [Security.Cryptography.ProtectedData]::Unprotect(
+          $protectedBytes, $null, [Security.Cryptography.DataProtectionScope]::CurrentUser)
+        $plainKey = [Text.Encoding]::Unicode.GetString($plainBytes)
+      } else {
+        # Read credentials created by the original PowerShell SecureString format.
+        $secureKey = ConvertTo-SecureString -String $encryptedKey
+        $secretBstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureKey)
+        $plainKey = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($secretBstr)
+      }
     }
 
     $failureMessage = 'Unable to prepare the Jev evaluator child process.'
@@ -182,9 +202,13 @@ try {
     [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($secretBstr)
   }
   if ($null -ne $secureKey) { $secureKey.Dispose() }
+  if ($null -ne $plainBytes) { [Array]::Clear($plainBytes, 0, $plainBytes.Length) }
+  if ($null -ne $protectedBytes) { [Array]::Clear($protectedBytes, 0, $protectedBytes.Length) }
   [Console]::OutputEncoding = $originalOutputEncoding
   $plainKey = $null
   $encryptedKey = $null
+  $plainBytes = $null
+  $protectedBytes = $null
 }
 
 exit $exitCode

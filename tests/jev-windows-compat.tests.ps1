@@ -151,6 +151,7 @@ for ($hostIndex = 0; $hostIndex -lt $HostPaths.Count; $hostIndex++) {
   Assert-Case ($setup.Code -eq 0) ('Fake DPAPI setup failed (exit ' + $setup.Code + '): ' + $setup.Err.Trim())
   $encrypted = [IO.File]::ReadAllText($fixture.Credential)
   Assert-Case ($encrypted.Length -gt 0 -and -not $encrypted.Contains('jev-compat-fake-key-do-not-use')) 'Credential storage is plaintext.'
+  Assert-Case $encrypted.StartsWith('dpapi-utf16-v2:') 'Credential storage is not the expected DPAPI format.'
   $repeat = Invoke-Case $fixture 'setup-again' @{ Mode = 'setup' }
   Assert-Case ($repeat.Code -eq 1 -and [IO.File]::ReadAllText($fixture.Credential) -ceq $encrypted) 'Setup overwrote an existing credential.'
 }
